@@ -93,6 +93,11 @@ class Attention(nn.Module):
         # Fallback strategy when SP is not active (outside sharded regions)
         self._no_parallel_strategy = NoParallelAttention()
 
+        # KV cache quantization: resolved lazily in forward() because
+        # forward_context is not available during model loading.
+        self._kv_cache_dtype: str | None = None
+        self._kv_cache_dtype_resolved: bool = False
+
     def _get_active_parallel_strategy(self):
         """Get the parallel strategy based on current SP active state.
 
@@ -108,6 +113,34 @@ class Attention(nn.Module):
                 return self._no_parallel_strategy
         return self.parallel_strategy
 
+    def _resolve_kv_cache_dtype(self) -> str | None:
+        """Lazily resolve kv_cache_dtype from forward context."""
+        if self._kv_cache_dtype_resolved:
+            return self._kv_cache_dtype
+        try:
+            config = get_forward_context().omni_diffusion_config
+            dtype = config.kv_cache_dtype
+        except Exception:
+            dtype = None
+        if dtype:
+            if not self.attn_backend.supports_kv_cache_dtype(dtype):
+                logger.warning(
+                    "Attention backend %s does not support kv_cache_dtype='%s'. "
+                    "KV quantization will be disabled.",
+                    self.attn_backend.get_name(),
+                    dtype,
+                )
+                dtype = None
+            elif self.use_ring:
+                raise ValueError(
+                    "FP8 KV quantization is not compatible with ring attention "
+                    "(ring_degree > 1). Ring kernels do not propagate FP8 descale "
+                    "factors. Use Ulysses SP instead."
+                )
+        self._kv_cache_dtype = dtype
+        self._kv_cache_dtype_resolved = True
+        return dtype
+
     def forward(
         self,
         query: torch.Tensor,
@@ -122,6 +155,14 @@ class Attention(nn.Module):
         # For Ulysses: AllToAll Q/K/V; Slicing joint_q/k/v
         # For Ring: Concat joint_q
         query, key, value, attn_metadata, ctx = strategy.pre_attention(query, key, value, attn_metadata)
+
+        # Signal KV quantization to backends via metadata
+        kv_cache_dtype = self._resolve_kv_cache_dtype()
+        if kv_cache_dtype:
+            if attn_metadata is None:
+                attn_metadata = AttentionMetadata()
+            if attn_metadata.kv_cache_dtype is None:
+                attn_metadata.kv_cache_dtype = kv_cache_dtype
 
         # 2. Kernel Execution (Computation)
         if self.use_ring and strategy is not self._no_parallel_strategy:

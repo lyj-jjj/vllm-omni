@@ -9,12 +9,22 @@ from vllm_omni.diffusion.attention.backends.abstract import (
     AttentionImpl,
     AttentionMetadata,
 )
+from vllm_omni.platforms import current_omni_platform
 
 logger = init_logger(__name__)
 
 
 class FlashAttentionBackend(AttentionBackend):
     accept_output_buffer: bool = True
+
+    @classmethod
+    def supports_kv_cache_dtype(cls, kv_cache_dtype: str | None) -> bool:
+        """Align with FlashAttentionImpl._supported_kv_cache_dtypes for current device."""
+        if kv_cache_dtype is None:
+            return True
+        platform_key = current_omni_platform.device_name
+        supported = FlashAttentionImpl._supported_kv_cache_dtypes.get(platform_key, set())
+        return kv_cache_dtype in supported
 
     @classmethod
     def supports_attention_mask(cls) -> bool:
@@ -34,6 +44,15 @@ class FlashAttentionBackend(AttentionBackend):
 
 
 class FlashAttentionImpl(AttentionImpl):
+    # Per-platform FP8 KV quantization support.
+    # To enable FP8 on a new platform, add its OmniPlatformEnum value here
+    # and handle kv_cache_dtype in the corresponding forward_{platform}().
+    _supported_kv_cache_dtypes = {
+        # "cuda": {"fp8", "fp8_e4m3"},
+        # "rocm": {"fp8", "fp8_e4m3"},
+        "npu": {"fp8", "fp8_e4m3fn"},
+    }
+
     def __init__(
         self,
         num_heads: int,
@@ -188,6 +207,50 @@ class FlashAttentionImpl(AttentionImpl):
         attn_metadata: AttentionMetadata = None,
     ) -> torch.Tensor:
         """NPU attention implementation using mindiesd."""
+
+        # case1: dynamic fa quant
+        kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None
+        if kv_cache_dtype is not None:
+            return self.forward_fa_quant_npu(query, key, value, attn_metadata)
+
+        # case2: normal fa
+        return self.forward_fa_npu(query, key, value, attn_metadata)
+
+    def forward_fa_quant_npu(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_metadata: AttentionMetadata = None,
+    ) -> torch.Tensor:
+        kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None
+        from vllm_omni.quantization.kv_quant_npu import fp8_rotate_quant_fa, is_quantized_kv_cache
+
+        if is_quantized_kv_cache(kv_cache_dtype):
+            # Models pass (B, S, H, D); NPU fused op expects (B, N, S, D).
+            out = fp8_rotate_quant_fa(
+                query.transpose(1, 2),
+                key.transpose(1, 2),
+                value.transpose(1, 2),
+                layout="BNSD",
+                softmax_scale=self.softmax_scale,
+            )
+            return out.transpose(1, 2)
+        logger.warning(
+            "Attention backend does not support kv_cache_dtype='%s'. "
+            "KV quantization will be disabled.",
+            kv_cache_dtype,
+        )
+        return self.forward_fa_npu(query, key, value, attn_metadata)
+
+
+    def forward_fa_npu(
+            self,
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            attn_metadata: AttentionMetadata = None,
+    ) -> torch.Tensor:
         try:
             from mindiesd import attention_forward
         except ImportError:
@@ -197,7 +260,6 @@ class FlashAttentionImpl(AttentionImpl):
                 "For installation details, see https://gitcode.com/Ascend/MindIE-SD"
                 "Otherwise, use SDPA backend by setting DIFFUSION_ATTENTION_BACKEND=TORCH_SDPA"
             )
-
         attention_mask = attn_metadata.attn_mask if attn_metadata else None
         output = attention_forward(
             query,
