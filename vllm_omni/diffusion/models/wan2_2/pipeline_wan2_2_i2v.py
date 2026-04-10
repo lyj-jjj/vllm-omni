@@ -17,6 +17,7 @@ from torch import nn
 from transformers import AutoTokenizer, CLIPImageProcessor, CLIPVisionModel, UMT5EncoderModel
 from vllm.model_executor.models.utils import AutoWeightsLoader
 
+from vllm_omni.diffusion.attention.backends.abstract import AttentionMetadata
 from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
 from vllm_omni.diffusion.distributed.autoencoders.autoencoder_kl_wan import DistributedAutoencoderKLWan
 from vllm_omni.diffusion.distributed.cfg_parallel import CFGParallelMixin
@@ -498,7 +499,7 @@ class Wan22I2VPipeline(
         if DEBUG_PERF:
             _t_denoise_start = time.perf_counter()
         with self.progress_bar(total=len(timesteps)) as pbar:
-            for t in timesteps:
+            for step_idx, t in enumerate(timesteps):
                 self._current_timestep = t
 
                 # Select model and guidance scale based on timestep
@@ -507,6 +508,14 @@ class Wan22I2VPipeline(
                 if boundary_timestep is not None and t < boundary_timestep and self.transformer_2 is not None:
                     current_model = self.transformer_2
                     current_guidance_scale = guidance_high
+
+                timestep_scalar = float(t.item()) if isinstance(t, torch.Tensor) else float(t)
+                current_model_tag = "transformer_2" if current_model is self.transformer_2 else "transformer"
+                step_attention_kwargs = dict(attention_kwargs)
+                step_attention_kwargs["attn_metadata"] = AttentionMetadata(
+                    denoise_step_idx=step_idx,
+                    current_model_tag=current_model_tag,
+                )
 
                 # Prepare latent input
                 if self.expand_timesteps:
@@ -529,7 +538,7 @@ class Wan22I2VPipeline(
                     "timestep": timestep,
                     "encoder_hidden_states": prompt_embeds,
                     "encoder_hidden_states_image": image_embeds,
-                    "attention_kwargs": attention_kwargs,
+                    "attention_kwargs": step_attention_kwargs,
                     "return_dict": False,
                     "current_model": current_model,
                 }
@@ -539,7 +548,7 @@ class Wan22I2VPipeline(
                         "timestep": timestep,
                         "encoder_hidden_states": negative_prompt_embeds,
                         "encoder_hidden_states_image": image_embeds,
-                        "attention_kwargs": attention_kwargs,
+                        "attention_kwargs": step_attention_kwargs,
                         "return_dict": False,
                         "current_model": current_model,
                     }

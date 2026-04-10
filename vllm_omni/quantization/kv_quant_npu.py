@@ -15,6 +15,7 @@ import torch
 
 # Hadamard rotation matrix for QuaRot-style preprocessing (head_dim must match).
 _ROT_MATRIX: torch.Tensor | None = None
+_IS_NOT_IMPORTED = True
 
 _FP8_KV_LABELS = frozenset({"fp8", "fp8_e4m3", "fp8_e4m3fn"})
 
@@ -42,17 +43,20 @@ def fp8_rotate_quant_fa(
     Returns:
         Attention output in the same layout as inputs.
     """
-    try:
-        import torch_npu
-        from mindiesd.layers.quant.block_quant import fa_block_quant_preprocess
-        from msmodelslim.processor.quarot.common.quarot_utils import QuaRotMode, create_rot
-    except ImportError as e:
-        raise ImportError(
-            "fp8_rotate_quant_fa requires torch_npu, MindIE-SD (mindiesd), and MSModelSlim. "
-            "See https://gitcode.com/Ascend/MindIE-SD and https://gitcode.com/Ascend/msmodelslim"
-        ) from e
-
     global _ROT_MATRIX
+    global _IS_NOT_IMPORTED
+
+    if _IS_NOT_IMPORTED:
+        try:
+            import torch_npu
+            from mindiesd.layers.quant.block_quant import fa_block_quant_preprocess
+            from msmodelslim.processor.quarot.common.quarot_utils import QuaRotMode, create_rot
+            _IS_NOT_IMPORTED = False
+        except ImportError as e:
+            raise ImportError(
+                "fp8_rotate_quant_fa requires torch_npu, MindIE-SD (mindiesd), and MSModelSlim. "
+                "See https://gitcode.com/Ascend/MindIE-SD and https://gitcode.com/Ascend/msmodelslim"
+            ) from e
 
     out_dtype = query.dtype
     device = query.device
@@ -64,12 +68,11 @@ def fp8_rotate_quant_fa(
     else:
         raise ValueError(f"fp8_rotate_quant_fa: unsupported layout {layout!r}, expected BNSD or BSND")
 
-    if _ROT_MATRIX is None or _ROT_MATRIX.shape[0] != d:
+    if _ROT_MATRIX is None:
         _ROT_MATRIX = create_rot(QuaRotMode.HADAMARD, d, seed=425500)
     if _ROT_MATRIX.device != device:
         _ROT_MATRIX = _ROT_MATRIX.to(device)
     rot = _ROT_MATRIX
-
     q_f = torch.matmul(query, rot)
     k_f = torch.matmul(key, rot)
 

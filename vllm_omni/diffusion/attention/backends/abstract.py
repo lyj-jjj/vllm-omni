@@ -81,6 +81,33 @@ class AttentionMetadata:
     # whether and how to quantize Q/K/V based on this field.
     kv_cache_dtype: str | None = None
 
+    # Runtime metadata used by selective KV-cache quantization gating.
+    denoise_step_idx: int | None = None
+    layer_idx: int | None = None
+    attn_kind: str | None = None  # "self" | "cross"
+    current_model_tag: str | None = None  # "transformer" | "transformer_2"
+
+
+
+def _update_attn_metadata(
+    base: AttentionMetadata | None,
+    *,
+    layer_idx: int | None = None,
+    attn_kind: str | None = None,
+    attn_mask: torch.Tensor | None = None,
+) -> AttentionMetadata | None:
+    """Update/create AttentionMetadata in-place for one attention call."""
+    if base is None and attn_mask is None:
+        return None
+    metadata = base if base is not None else AttentionMetadata()
+    if layer_idx is not None:
+        metadata.layer_idx = layer_idx
+    if attn_kind is not None:
+        metadata.attn_kind = attn_kind
+    metadata.attn_mask = attn_mask
+    return metadata
+
+
 T = TypeVar("T", bound=AttentionMetadata)
 
 

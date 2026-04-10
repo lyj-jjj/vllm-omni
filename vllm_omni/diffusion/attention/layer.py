@@ -97,6 +97,54 @@ class Attention(nn.Module):
         # forward_context is not available during model loading.
         self._kv_cache_dtype: str | None = None
         self._kv_cache_dtype_resolved: bool = False
+        self._kv_cache_skip_steps: set[int] | None = None
+        self._kv_cache_skip_layers: set[int] | None = None
+        self._kv_cache_skip_selectors_resolved: bool = False
+
+    @staticmethod
+    def _parse_selector_indices(selector: str | list[int] | tuple[int, ...] | set[int] | None) -> set[int] | None:
+        if selector is None:
+            return None
+        if isinstance(selector, set):
+            values = selector
+        elif isinstance(selector, (list, tuple)):
+            values = set(selector)
+        elif isinstance(selector, str):
+            text = selector.strip()
+            if not text:
+                return None
+            values: set[int] = set()
+            for chunk in text.split(","):
+                token = chunk.strip()
+                if not token:
+                    continue
+                if "-" in token:
+                    start_str, end_str = token.split("-", 1)
+                    try:
+                        start = int(start_str.strip())
+                        end = int(end_str.strip())
+                    except ValueError as exc:
+                        raise ValueError(f"Invalid range token '{token}' in selector '{selector}'.") from exc
+                    if start < 0 or end < 0 or start > end:
+                        raise ValueError(f"Invalid range token '{token}' in selector '{selector}'.")
+                    values.update(range(start, end + 1))
+                else:
+                    try:
+                        index = int(token)
+                    except ValueError as exc:
+                        raise ValueError(f"Invalid index token '{token}' in selector '{selector}'.") from exc
+                    if index < 0:
+                        raise ValueError(f"Negative index '{index}' is not allowed in selector '{selector}'.")
+                    values.add(index)
+        else:
+            raise TypeError(f"Unsupported selector type: {type(selector)!r}")
+
+        for idx in values:
+            if not isinstance(idx, int):
+                raise TypeError(f"Selector index must be int, got {type(idx)!r}")
+            if idx < 0:
+                raise ValueError("Selector indices must be non-negative.")
+        return values
 
     def _get_active_parallel_strategy(self):
         """Get the parallel strategy based on current SP active state.
@@ -133,13 +181,43 @@ class Attention(nn.Module):
                 dtype = None
             elif self.use_ring:
                 raise ValueError(
-                    "FP8 KV quantization is not compatible with ring attention "
-                    "(ring_degree > 1). Ring kernels do not propagate FP8 descale "
+                    "KV quantization is not compatible with ring attention "
+                    "(ring_degree > 1). Ring kernels do not propagate quantization descale "
                     "factors. Use Ulysses SP instead."
                 )
         self._kv_cache_dtype = dtype
         self._kv_cache_dtype_resolved = True
         return dtype
+
+    def _resolve_kv_cache_skip_selectors_from_config(self) -> tuple[set[int] | None, set[int] | None]:
+        if self._kv_cache_skip_selectors_resolved:
+            return self._kv_cache_skip_steps, self._kv_cache_skip_layers
+        try:
+            config = get_forward_context().omni_diffusion_config
+        except Exception:
+            return self._kv_cache_skip_steps, self._kv_cache_skip_layers
+        self._kv_cache_skip_steps = self._parse_selector_indices(config.kv_cache_skip_steps)
+        self._kv_cache_skip_layers = self._parse_selector_indices(config.kv_cache_skip_layers)
+        self._kv_cache_skip_selectors_resolved = True
+        return self._kv_cache_skip_steps, self._kv_cache_skip_layers
+
+    def _should_apply_kv_cache_quant(self, attn_metadata: AttentionMetadata | None) -> bool:
+        skip_steps = self._kv_cache_skip_steps
+        skip_layers = self._kv_cache_skip_layers
+
+        if skip_steps is not None:
+            step_idx = attn_metadata.denoise_step_idx if attn_metadata is not None else None
+            if step_idx is None:
+                return False
+            if step_idx in skip_steps:
+                return False
+        if skip_layers is not None:
+            layer_idx = attn_metadata.layer_idx if attn_metadata is not None else None
+            if layer_idx is None:
+                return False
+            if layer_idx in skip_layers:
+                return False
+        return True
 
     def forward(
         self,
@@ -156,13 +234,19 @@ class Attention(nn.Module):
         # For Ring: Concat joint_q
         query, key, value, attn_metadata, ctx = strategy.pre_attention(query, key, value, attn_metadata)
 
-        # Signal KV quantization to backends via metadata
+        # Signal KV-cache quantization to backends via metadata
         kv_cache_dtype = self._resolve_kv_cache_dtype()
-        if kv_cache_dtype:
+        # Resolve and cache kv_cache skip selectors alongside runtime strategy
+        # selection to avoid repeated config reads/parsing in quantization gating.
+        self._resolve_kv_cache_skip_selectors_from_config()
+        if kv_cache_dtype and self._should_apply_kv_cache_quant(attn_metadata):
             if attn_metadata is None:
                 attn_metadata = AttentionMetadata()
             if attn_metadata.kv_cache_dtype is None:
                 attn_metadata.kv_cache_dtype = kv_cache_dtype
+        elif attn_metadata is not None:
+            # Ensure non-selected calls do not accidentally inherit dtype.
+            attn_metadata.kv_cache_dtype = None
 
         # 2. Kernel Execution (Computation)
         if self.use_ring and strategy is not self._no_parallel_strategy:
