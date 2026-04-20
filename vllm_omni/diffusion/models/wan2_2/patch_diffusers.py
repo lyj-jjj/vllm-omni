@@ -1,3 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
+from __future__ import annotations
+import torch
+
+from torch import nn
+from vllm_omni.platforms import current_omni_platform
+
 def patch_wan_rms_norm():
     '''Replace small operators with fused operators'''
 
@@ -5,7 +14,6 @@ def patch_wan_rms_norm():
         return
 
     import torch_npu
-
     class WanRMS_norm(nn.Module):
         def __init__(self, dim: int, channel_first: bool = True, images: bool = True, bias: bool = False) -> None:
             super().__init__()
@@ -29,5 +37,3 @@ def patch_wan_rms_norm():
     for module_name, module in sys.modules.items():
         if hasattr(module, 'WanRMS_norm'):
             setattr(module, 'WanRMS_norm', WanRMS_norm)
-
-patch_wan_rms_norm()
