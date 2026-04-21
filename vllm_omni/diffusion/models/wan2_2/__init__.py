@@ -17,7 +17,7 @@ from .pipeline_wan2_2_ti2v import (
     get_wan22_ti2v_pre_process_func,
 )
 from .wan2_2_transformer import WanTransformer3DModel
-form .patch_diffusers import patch_wan_rms_norm
+from .patch_diffusers import patch_wan_rms_norm
 
 __all__ = [
     "Wan22Pipeline",
