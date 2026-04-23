@@ -47,6 +47,10 @@ def client(mock_engine):
 
 @pytest.mark.asyncio
 async def test_inline_dispatch_request_success(client, mock_engine):
+<<<<<<< HEAD
+=======
+    # Setup mock engine step to return a successful result
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
     mock_result = OmniRequestOutput.from_diffusion(request_id="req-1", images=[MagicMock()])
     mock_engine.step.return_value = [mock_result]
 
@@ -63,6 +67,7 @@ async def test_inline_dispatch_request_success(client, mock_engine):
     assert output is not None
     assert output.request_id == "req-1"
     mock_engine.step.assert_called_once()
+<<<<<<< HEAD
     request = mock_engine.step.call_args.args[0]
     assert request.prompts == ["A test prompt"]
     assert request.request_ids == ["req-1"]
@@ -91,10 +96,16 @@ async def test_inline_dispatch_batch_success(client, mock_engine):
     request = mock_engine.step.call_args.args[0]
     assert request.prompts == prompts
     assert request.request_ids == ["req-batch-0", "req-batch-1"]
+=======
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
 
 @pytest.mark.asyncio
 async def test_inline_dispatch_request_error(client, mock_engine):
+<<<<<<< HEAD
+=======
+    # Setup mock engine step to raise an exception
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
     mock_engine.step.side_effect = RuntimeError("Engine failure")
 
     sampling_params = OmniDiffusionSamplingParams()
@@ -107,9 +118,15 @@ async def test_inline_dispatch_request_error(client, mock_engine):
         await asyncio.sleep(0.01)
 
     assert output is not None
+<<<<<<< HEAD
     assert output["request_id"] == "req-err"
     assert output["error"] == "Engine failure"
     assert output["error_type"] == "RuntimeError"
+=======
+    assert output.request_id == "req-err"
+    assert output.error == "Engine failure"
+    assert not output.images
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
 
 def test_inline_shutdown(client, mock_engine):

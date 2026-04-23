@@ -7,6 +7,7 @@ Regression tests for https://github.com/vllm-project/vllm-omni/issues/1862
 
 from collections.abc import Mapping
 
+import pytest
 import torch
 
 from vllm_omni.config.stage_config import StageConfigFactory
@@ -15,6 +16,11 @@ from vllm_omni.diffusion.data import (
     OmniDiffusionConfig,
 )
 from vllm_omni.diffusion.model_metadata import QWEN_IMAGE_EDIT_PLUS_MAX_INPUT_IMAGES
+<<<<<<< HEAD
+=======
+
+pytestmark = [pytest.mark.core_model, pytest.mark.cpu]
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
 
 def _roundtrip_diffusion_config(**kwargs) -> OmniDiffusionConfig:

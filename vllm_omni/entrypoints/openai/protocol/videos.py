@@ -224,10 +224,18 @@ class VideoGenerationResponse(BaseModel):
 
     created: int = Field(..., description="Unix timestamp of when the generation completed")
     data: list[VideoData] = Field(..., description="Array of generated videos")
+    stage_durations: dict[str, float] = Field(
+        default_factory=dict,
+        description="Profiler stage durations reported by the diffusion pipeline.",
+    )
+    peak_memory_mb: float = Field(
+        default=0.0,
+        description="Peak device memory usage in MB reported by the diffusion pipeline.",
+    )
 
 
 class VideoError(BaseModel):
-    code: str = Field(..., description="A machine-readable error code that was returned.")
+    code: int | str = Field(..., description="A machine-readable error code that was returned.")
     message: str = Field(..., description="A human-readable description of the error that was returned.")
 
 
@@ -273,6 +281,14 @@ class VideoResponse(BaseModel):
         description="Filename of the saved output video files for this job.",
     )
     inference_time_s: float | None = Field(default=None, description="End-to-end inference time in seconds.")
+    stage_durations: dict[str, float] = Field(
+        default_factory=dict,
+        description="Profiler stage durations reported by the diffusion pipeline.",
+    )
+    peak_memory_mb: float = Field(
+        default=0.0,
+        description="Peak device memory usage in MB reported by the diffusion pipeline.",
+    )
 
     @property
     def file_extension(self) -> str:

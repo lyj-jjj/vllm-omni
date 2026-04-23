@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import os
-import tempfile
 from io import BytesIO
 from typing import Any
 
@@ -159,8 +157,13 @@ def _normalize_frames(frames: list[Any]) -> list[np.ndarray]:
     return normalized
 
 
+<<<<<<< HEAD
 def _coerce_video_to_array(video: Any) -> np.ndarray:
     """Convert a video payload into a normalized array of frames (F, H, W, C)."""
+=======
+def _coerce_video_to_frames(video: Any) -> list[np.ndarray]:
+    """Convert a video payload into a list of normalized float32 frames."""
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
     if isinstance(video, torch.Tensor):
         video_array = _normalize_video_tensor(video)
         if video_array.ndim == 4:
@@ -216,12 +219,20 @@ def _encode_video_bytes(
     video_codec_options: dict[str, str] | None = None,
 ) -> bytes:
     """Encode a video payload into MP4 bytes, optionally muxing audio."""
+<<<<<<< HEAD
     frames_np = _coerce_video_to_array(video)
     if frames_np.size == 0:
+=======
+    from vllm_omni.diffusion.utils.media_utils import mux_video_audio_bytes
+
+    frames = _coerce_video_to_frames(video)
+    if not frames:
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
         raise ValueError("No frames found to encode.")
     if frames_np.ndim == 4 and frames_np.shape[-1] == 4:
         frames_np = frames_np[..., :3]
 
+<<<<<<< HEAD
     if audio is None:
         from diffusers.utils import export_to_video
 
@@ -239,6 +250,12 @@ def _encode_video_bytes(
 
     from vllm_omni.diffusion.utils.media_utils import mux_video_audio_bytes
 
+=======
+    frames_np = np.stack(frames, axis=0)
+    if frames_np.ndim == 4 and frames_np.shape[-1] == 4:
+        frames_np = frames_np[..., :3]
+
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
     if frames_np.dtype == np.uint8:
         frames_u8 = frames_np
     else:

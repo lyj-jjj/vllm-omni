@@ -31,6 +31,7 @@ def _install_fake_video_mux(monkeypatch, mux_calls):
     )
 
 
+<<<<<<< HEAD
 def _install_fake_export_to_video(monkeypatch, export_calls):
     def _fake_export_to_video(frames, output_path, fps):
         export_calls.append(
@@ -49,6 +50,11 @@ def _install_fake_export_to_video(monkeypatch, export_calls):
 def test_encode_video_bytes_exports_frames_without_interpolation(monkeypatch):
     export_calls = []
     _install_fake_export_to_video(monkeypatch, export_calls)
+=======
+def test_encode_video_bytes_exports_frames_without_interpolation(monkeypatch):
+    mux_calls = []
+    _install_fake_video_mux(monkeypatch, mux_calls)
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
     frames = [np.full((2, 2, 3), fill_value=i / 5, dtype=np.float32) for i in range(5)]
     video_bytes = video_api_utils._encode_video_bytes(
@@ -57,6 +63,7 @@ def test_encode_video_bytes_exports_frames_without_interpolation(monkeypatch):
     )
 
     assert video_bytes == b"fake-video"
+<<<<<<< HEAD
     assert len(export_calls) == 1
     assert len(export_calls[0]["frames"]) == 5
     assert export_calls[0]["frames"][0].shape == (2, 2, 3)
@@ -99,6 +106,12 @@ def test_encode_video_bytes_without_audio_uses_diffusers_export(monkeypatch):
     assert len(export_calls) == 1
     assert export_calls[0]["fps"] == 10
     assert len(export_calls[0]["frames"]) == 4
+=======
+    assert mux_calls[0]["frames"].shape == (5, 2, 2, 3)
+    assert mux_calls[0]["frames"].dtype == np.uint8
+    assert mux_calls[0]["fps"] == 8.0
+    assert mux_calls[0]["audio"] is None
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
 
 def test_rife_model_inference_runs_on_dummy_tensors():

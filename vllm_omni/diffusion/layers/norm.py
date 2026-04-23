@@ -23,6 +23,11 @@ class LayerNorm(nn.LayerNorm, CustomOp):
 
     def __init__(self, dim: int, eps: float = 1e-6, elementwise_affine: bool = True):
         super().__init__(normalized_shape=dim, eps=eps, elementwise_affine=elementwise_affine)
+<<<<<<< HEAD
+=======
+        # CustomOp.__init__ cannot be called here because it would re-run
+        # nn.Module initialization and clear LayerNorm parameters.
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
         self._forward_method = CustomOp.dispatch_forward(self)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -106,6 +111,7 @@ class RMSNorm(CustomOp):
         out = x * torch.rsqrt(variance + self.variance_epsilon)
         out = self.weight.to(torch.float32) * out
         return out.to(input_dtype)
+<<<<<<< HEAD
 
 class RMSNormVAE(CustomOp):
     """Root Mean Square Layer Normalization for Channel-First or Last"""
@@ -178,3 +184,5 @@ class RMSNormVAE(CustomOp):
         if self.bias is not None:
             out = out + self.bias
         return out
+=======
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442

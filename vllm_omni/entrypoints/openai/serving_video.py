@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -96,7 +97,7 @@ class OmniOpenAIServingVideo:
         if request.negative_prompt is not None:
             prompt["negative_prompt"] = request.negative_prompt
 
-        gen_params = OmniDiffusionSamplingParams()
+        gen_params = self._resolve_default_sampling_params()
 
         input_image = None if reference_image is None else reference_image.data
         vp = request.resolve_video_params()
@@ -114,22 +115,34 @@ class OmniOpenAIServingVideo:
         if vp.fps is not None:
             gen_params.fps = vp.fps
             gen_params.frame_rate = float(vp.fps)
+<<<<<<< HEAD
         gen_params.enable_frame_interpolation = request.enable_frame_interpolation
         gen_params.frame_interpolation_exp = request.frame_interpolation_exp
         gen_params.frame_interpolation_scale = request.frame_interpolation_scale
         gen_params.frame_interpolation_model_path = request.frame_interpolation_model_path
+=======
+        provided_fields = request.model_fields_set
+        if "enable_frame_interpolation" in provided_fields:
+            gen_params.enable_frame_interpolation = request.enable_frame_interpolation
+        if "frame_interpolation_exp" in provided_fields:
+            gen_params.frame_interpolation_exp = request.frame_interpolation_exp
+        if "frame_interpolation_scale" in provided_fields:
+            gen_params.frame_interpolation_scale = request.frame_interpolation_scale
+        if "frame_interpolation_model_path" in provided_fields:
+            gen_params.frame_interpolation_model_path = request.frame_interpolation_model_path
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 
-        if request.num_inference_steps is not None:
+        if "num_inference_steps" in provided_fields and request.num_inference_steps is not None:
             gen_params.num_inference_steps = request.num_inference_steps
-        if request.guidance_scale is not None:
+        if "guidance_scale" in provided_fields and request.guidance_scale is not None:
             gen_params.guidance_scale = request.guidance_scale
-        if request.guidance_scale_2 is not None:
+        if "guidance_scale_2" in provided_fields and request.guidance_scale_2 is not None:
             gen_params.guidance_scale_2 = request.guidance_scale_2
-        if request.true_cfg_scale is not None:
+        if "true_cfg_scale" in provided_fields and request.true_cfg_scale is not None:
             gen_params.true_cfg_scale = request.true_cfg_scale
-        if request.seed is not None:
+        if "seed" in provided_fields and request.seed is not None:
             gen_params.seed = request.seed
-        if request.boundary_ratio is not None:
+        if "boundary_ratio" in provided_fields and request.boundary_ratio is not None:
             gen_params.boundary_ratio = request.boundary_ratio
 
         logger.info(
@@ -137,7 +150,7 @@ class OmniOpenAIServingVideo:
             request.boundary_ratio,
             gen_params.boundary_ratio,
         )
-        if request.flow_shift is not None:
+        if "flow_shift" in provided_fields and request.flow_shift is not None:
             gen_params.extra_args["flow_shift"] = request.flow_shift
 
         if request.extra_params is not None:
@@ -182,7 +195,15 @@ class OmniOpenAIServingVideo:
     ) -> VideoGenerationResponse:
         artifacts = await self._run_and_extract(request, reference_id, reference_image=reference_image)
 
+<<<<<<< HEAD
         video_codec_options = self._resolve_video_codec_options(request)
+=======
+        video_codec_options = {"preset": "ultrafast", "threads": "0"}
+        if request.extra_params is not None and isinstance(request.extra_params, dict):
+            if "video_codec_options" in request.extra_params:
+                video_codec_options = request.extra_params["video_codec_options"]
+
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
         _t_encode_start = time.perf_counter()
         video_data = [
             VideoData(
@@ -202,7 +223,72 @@ class OmniOpenAIServingVideo:
         ]
         _t_encode_ms = (time.perf_counter() - _t_encode_start) * 1000
         logger.info("Video response encoding (MP4+base64): %.2f ms", _t_encode_ms)
-        return VideoGenerationResponse(created=int(time.time()), data=video_data)
+        return VideoGenerationResponse(
+            created=int(time.time()),
+            data=video_data,
+            stage_durations=artifacts.stage_durations,
+            peak_memory_mb=artifacts.peak_memory_mb,
+        )
+
+    async def generate_video_bytes(
+        self,
+        request: VideoGenerationRequest,
+        reference_id: str,
+        *,
+        reference_image: ReferenceImage | None = None,
+    ) -> tuple[bytes, dict[str, float], float]:
+        """Generate a video and return raw MP4 bytes, bypassing base64 encoding."""
+        artifacts = await self._run_and_extract(request, reference_id, reference_image=reference_image)
+        if len(artifacts.videos) > 1:
+            logger.warning(
+                "Video request %s generated %d outputs; returning only the first.",
+                reference_id,
+                len(artifacts.videos),
+            )
+        audio = artifacts.audios[0]
+
+        video_codec_options = {"preset": "ultrafast", "threads": "0"}
+        if request.extra_params is not None and isinstance(request.extra_params, dict):
+            if "video_codec_options" in request.extra_params:
+                video_codec_options = request.extra_params["video_codec_options"]
+
+        _t_encode_start = time.perf_counter()
+        video_bytes = _encode_video_bytes(
+            artifacts.videos[0],
+            fps=artifacts.output_fps,
+            **({"audio": audio, "audio_sample_rate": artifacts.audio_sample_rate} if audio is not None else {}),
+            video_codec_options=video_codec_options,
+        )
+        _t_encode_ms = (time.perf_counter() - _t_encode_start) * 1000
+        logger.info("Video response encoding (MP4 bytes): %.2f ms", _t_encode_ms)
+        return video_bytes, artifacts.stage_durations, artifacts.peak_memory_mb
+
+    @staticmethod
+    def _resolve_video_fps_multiplier(result: Any) -> int:
+        custom_output = getattr(result, "custom_output", None)
+        if isinstance(custom_output, dict):
+            multiplier = custom_output.get("video_fps_multiplier")
+            if multiplier is not None:
+                return int(multiplier)
+        request_output = getattr(result, "request_output", None)
+        if request_output is not None:
+            custom_output = getattr(request_output, "custom_output", None)
+            if isinstance(custom_output, dict):
+                multiplier = custom_output.get("video_fps_multiplier")
+                if multiplier is not None:
+                    return int(multiplier)
+        return 1
+
+    def _resolve_default_sampling_params(self) -> OmniDiffusionSamplingParams:
+        default_sampling_params_list = getattr(self._engine_client, "default_sampling_params_list", None)
+        if default_sampling_params_list:
+            for params in default_sampling_params_list:
+                if isinstance(params, OmniDiffusionSamplingParams):
+                    # Requests mutate sampling params in-place, including
+                    # nested dict fields like extra_args. Deep-copy the stage
+                    # defaults so one request cannot leak state into another.
+                    return copy.deepcopy(params)
+        return OmniDiffusionSamplingParams()
 
     async def generate_video_bytes(
         self,
@@ -423,6 +509,10 @@ class OmniOpenAIServingVideo:
 
     @staticmethod
     def _resolve_fps(result: Any) -> int | None:
+<<<<<<< HEAD
+=======
+        """Extract fps from multimodal_output if the model reported it."""
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
         multimodal_output = getattr(result, "multimodal_output", None)
         if isinstance(multimodal_output, dict):
             fps = multimodal_output.get("fps")

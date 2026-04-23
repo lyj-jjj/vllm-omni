@@ -62,6 +62,7 @@ class MockVideoResult:
 class FakeAsyncOmni:
     def __init__(self):
         self.stage_configs = [SimpleNamespace(stage_type="diffusion")]
+        self.default_sampling_params_list = [OmniDiffusionSamplingParams()]
         self.captured_prompt = None
         self.captured_sampling_params_list = None
 
@@ -147,7 +148,6 @@ def _wait_for_status(client: TestClient, video_id: str, status: str, timeout_s: 
     last_payload = None
     while time.time() < deadline:
         response = client.get(f"/v1/videos/{video_id}")
-        assert response.status_code == 200
         last_payload = response.json()
         if last_payload["status"] == status:
             return last_payload
@@ -457,6 +457,90 @@ def test_frame_interpolation_params_pass_to_diffusion_sampling_params(test_clien
     assert captured.frame_interpolation_model_path == "local-rife"
 
 
+<<<<<<< HEAD
+=======
+def test_default_sampling_params_apply_to_video_requests(test_client, mocker: MockerFixture):
+    mocker.patch(
+        "vllm_omni.entrypoints.openai.serving_video._encode_video_bytes",
+        return_value=b"fake-video",
+    )
+    engine = test_client.app.state.openai_serving_video._engine_client
+    engine.default_sampling_params_list = [
+        OmniDiffusionSamplingParams(
+            num_inference_steps=4,
+            guidance_scale=7.5,
+            generator_device="cpu",
+            enable_frame_interpolation=True,
+            frame_interpolation_exp=2,
+            frame_interpolation_scale=0.5,
+            frame_interpolation_model_path="default-rife",
+        )
+    ]
+
+    response = test_client.post(
+        "/v1/videos",
+        data={
+            "prompt": "default param pass-through",
+        },
+    )
+
+    assert response.status_code == 200
+    video_id = response.json()["id"]
+    _wait_for_status(test_client, video_id, VideoGenerationStatus.COMPLETED.value)
+
+    captured = engine.captured_sampling_params_list[0]
+    assert captured.num_inference_steps == 4
+    assert captured.guidance_scale == 7.5
+    assert captured.generator_device == "cpu"
+    assert captured.enable_frame_interpolation is True
+    assert captured.frame_interpolation_exp == 2
+    assert captured.frame_interpolation_scale == 0.5
+    assert captured.frame_interpolation_model_path == "default-rife"
+
+
+def test_request_params_override_default_video_sampling_params(test_client, mocker: MockerFixture):
+    mocker.patch(
+        "vllm_omni.entrypoints.openai.serving_video._encode_video_bytes",
+        return_value=b"fake-video",
+    )
+    engine = test_client.app.state.openai_serving_video._engine_client
+    engine.default_sampling_params_list = [
+        OmniDiffusionSamplingParams(
+            num_inference_steps=4,
+            guidance_scale=7.5,
+            enable_frame_interpolation=True,
+            frame_interpolation_exp=2,
+            frame_interpolation_scale=0.5,
+            frame_interpolation_model_path="default-rife",
+        )
+    ]
+
+    response = test_client.post(
+        "/v1/videos",
+        data={
+            "prompt": "explicit override",
+            "num_inference_steps": "8",
+            "enable_frame_interpolation": "false",
+            "frame_interpolation_exp": "1",
+            "frame_interpolation_scale": "1.0",
+            "frame_interpolation_model_path": "custom-rife",
+        },
+    )
+
+    assert response.status_code == 200
+    video_id = response.json()["id"]
+    _wait_for_status(test_client, video_id, VideoGenerationStatus.COMPLETED.value)
+
+    captured = engine.captured_sampling_params_list[0]
+    assert captured.num_inference_steps == 8
+    assert captured.guidance_scale == 7.5
+    assert captured.enable_frame_interpolation is False
+    assert captured.frame_interpolation_exp == 1
+    assert captured.frame_interpolation_scale == 1.0
+    assert captured.frame_interpolation_model_path == "custom-rife"
+
+
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
 def test_worker_fps_multiplier_is_applied_to_async_encoding(test_client, mocker: MockerFixture):
     fps_values = []
     engine = test_client.app.state.openai_serving_video._engine_client
@@ -578,6 +662,18 @@ def test_missing_prompt_returns_422(test_client):
     assert response.status_code == 422
 
 
+def test_video_generation_rejects_model_mismatch(test_client):
+    response = test_client.post(
+        "/v1/videos",
+        data={
+            "prompt": "bad model",
+            "model": "Wan-AI/Wan2.1-T2V-14B-Diffusers",
+        },
+    )
+    assert response.status_code == 400
+    assert "model mismatch" in response.json()["detail"].lower()
+
+
 def test_invalid_size_parse_returns_422(test_client):
     response = test_client.post(
         "/v1/videos",
@@ -646,7 +742,7 @@ def test_invalid_lora_returns_400(test_client):
     assert response.status_code == 200
     video_id = response.json()["id"]
     failed = _wait_for_status(test_client, video_id, VideoGenerationStatus.FAILED.value)
-    assert failed["error"]["code"] == "HTTPException"
+    assert failed["error"]["code"] == 400
     assert "lora object" in failed["error"]["message"].lower()
 
 
@@ -948,6 +1044,7 @@ def test_sample_solver_forwarded_via_extra_params(test_client, mocker: MockerFix
     assert captured.extra_args["sample_solver"] == "euler"
 
 
+<<<<<<< HEAD
 @pytest.mark.asyncio
 async def test_run_generation_maps_omni_request_error_to_http_exception():
     serving = OmniOpenAIServingVideo.for_diffusion(
@@ -980,3 +1077,268 @@ async def test_run_generation_maps_omni_request_error_to_http_exception():
         "error_type": "OutOfMemoryError",
         "detail": {"retryable": False},
     }
+=======
+# ---------------------------------------------------------------------------
+# Sync endpoint tests (POST /v1/videos/sync)
+# ---------------------------------------------------------------------------
+
+
+def _mock_encode_video_bytes(mocker: MockerFixture, return_value: bytes = b"fake-video-bytes"):
+    """Mock the raw-bytes encoder used by the sync video path."""
+    return mocker.patch(
+        "vllm_omni.entrypoints.openai.serving_video._encode_video_bytes",
+        return_value=return_value,
+    )
+
+
+def test_sync_t2v_returns_video_bytes(test_client, mocker: MockerFixture):
+    """Sync endpoint should block until generation finishes and return raw
+    video bytes with metadata headers."""
+    _mock_encode_video_bytes(mocker, b"fake-video-bytes")
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "A cat running across the street.",
+            "size": "640x360",
+            "seconds": "2",
+            "fps": "12",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "video/mp4"
+    assert response.content == b"fake-video-bytes"
+    assert response.headers["x-request-id"].startswith("video_sync-")
+    assert response.headers["x-model"] == "Wan-AI/Wan2.2-T2V-A14B-Diffusers"
+    assert float(response.headers["x-inference-time-s"]) >= 0
+    assert json.loads(response.headers["x-stage-durations"]) == {}
+    assert float(response.headers["x-peak-memory-mb"]) == 0.0
+
+
+def test_sync_t2v_returns_profiler_headers(test_client, mocker: MockerFixture):
+    engine = test_client.app.state.openai_serving_video._engine_client
+
+    async def _generate(prompt, request_id, sampling_params_list):
+        engine.captured_prompt = prompt
+        engine.captured_sampling_params_list = sampling_params_list
+        yield MockVideoResult(
+            [object()],
+            stage_durations={"diffuse": 1.75},
+            peak_memory_mb=1234.25,
+        )
+
+    engine.generate = _generate
+    _mock_encode_video_bytes(mocker, b"profiled-video")
+
+    response = test_client.post("/v1/videos/sync", data={"prompt": "sync profile"})
+
+    assert response.status_code == 200
+    assert response.content == b"profiled-video"
+    assert json.loads(response.headers["x-stage-durations"]) == {"diffuse": 1.75}
+    assert float(response.headers["x-peak-memory-mb"]) == pytest.approx(1234.25, rel=0, abs=1e-3)
+
+
+def test_sync_i2v_returns_video_bytes(test_client, mocker: MockerFixture):
+    """Sync I2V endpoint should accept an uploaded reference image and return
+    raw video bytes."""
+    image_bytes = _make_test_image_bytes((48, 32))
+    _mock_encode_video_bytes(mocker, b"i2v-video-data")
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={"prompt": "A bear playing with yarn."},
+        files={"input_reference": ("input.png", image_bytes, "image/png")},
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"i2v-video-data"
+    assert response.headers["content-type"] == "video/mp4"
+
+
+def test_sync_i2v_with_image_reference(test_client, mocker: MockerFixture):
+    """Sync I2V endpoint should accept a JSON image_reference field."""
+    _mock_encode_video_bytes(mocker, b"ref-video")
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "A fox running through snow.",
+            "image_reference": json.dumps({"image_url": _make_test_image_data_url((40, 24))}),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"ref-video"
+
+
+def test_sync_missing_handler_returns_503():
+    app = FastAPI()
+    app.include_router(router)
+    app.state.openai_serving_video = None
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/videos/sync",
+        data={"prompt": "no handler"},
+    )
+    assert response.status_code == 503
+    assert "not initialized" in response.json()["detail"].lower()
+
+
+def test_sync_missing_prompt_returns_422(test_client):
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={"size": "320x240"},
+    )
+    assert response.status_code == 422
+
+
+def test_sync_rejects_both_references(test_client):
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "bad refs",
+            "image_reference": '{"image_url": "https://example.com/cat.png"}',
+        },
+        files={"input_reference": ("input.png", _make_test_image_bytes(), "image/png")},
+    )
+    assert response.status_code == 400
+    assert "either input_reference or image_reference" in response.json()["detail"].lower()
+
+
+def test_sync_generation_error_returns_500(test_client, mocker: MockerFixture):
+    """If the underlying generation raises, the sync endpoint should return 500."""
+    mocker.patch.object(
+        OmniOpenAIServingVideo,
+        "generate_video_bytes",
+        side_effect=RuntimeError("GPU exploded"),
+    )
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={"prompt": "will fail"},
+    )
+    assert response.status_code == 500
+    assert "GPU exploded" in response.json()["detail"]
+
+
+def test_sync_does_not_create_store_entry(test_client, mocker: MockerFixture):
+    """The sync endpoint should NOT leave any record in VIDEO_STORE — it is
+    stateless by design."""
+    _mock_encode_video_bytes(mocker)
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={"prompt": "stateless test"},
+    )
+    assert response.status_code == 200
+    loop = asyncio.new_event_loop()
+    try:
+        stored = loop.run_until_complete(api_server.VIDEO_STORE.list_values())
+    finally:
+        loop.close()
+    assert len(stored) == 0
+
+
+def test_sync_sampling_params_pass_through(test_client, mocker: MockerFixture):
+    """Sampling parameters should propagate to the engine through the sync path."""
+    _mock_encode_video_bytes(mocker)
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "param pass",
+            "num_inference_steps": "30",
+            "guidance_scale": "6.5",
+            "seed": "42",
+        },
+    )
+    assert response.status_code == 200
+    engine = test_client.app.state.openai_serving_video._engine_client
+    captured = engine.captured_sampling_params_list[0]
+    assert captured.num_inference_steps == 30
+    assert captured.guidance_scale == 6.5
+    assert captured.seed == 42
+
+
+def test_sync_frame_interpolation_params_pass_to_sampling_params(test_client, mocker: MockerFixture):
+    """Frame interpolation parameters should be forwarded on the sync path."""
+    encode_mock = _mock_encode_video_bytes(mocker)
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "smooth sync",
+            "fps": "8",
+            "enable_frame_interpolation": "true",
+            "frame_interpolation_exp": "2",
+            "frame_interpolation_scale": "0.5",
+            "frame_interpolation_model_path": "local-rife",
+        },
+    )
+
+    assert response.status_code == 200
+    engine = test_client.app.state.openai_serving_video._engine_client
+    captured = engine.captured_sampling_params_list[0]
+    assert captured.enable_frame_interpolation is True
+    assert captured.frame_interpolation_exp == 2
+    assert captured.frame_interpolation_scale == 0.5
+    assert captured.frame_interpolation_model_path == "local-rife"
+    _, kwargs = encode_mock.call_args
+    assert kwargs["fps"] == 8
+
+
+def test_sync_default_sampling_params_apply_to_video_requests(test_client, mocker: MockerFixture):
+    _mock_encode_video_bytes(mocker)
+    engine = test_client.app.state.openai_serving_video._engine_client
+    engine.default_sampling_params_list = [
+        OmniDiffusionSamplingParams(
+            num_inference_steps=4,
+            guidance_scale=7.5,
+            enable_frame_interpolation=True,
+            frame_interpolation_exp=2,
+            frame_interpolation_scale=0.5,
+            frame_interpolation_model_path="default-rife",
+        )
+    ]
+
+    response = test_client.post(
+        "/v1/videos/sync",
+        data={
+            "prompt": "sync default param pass-through",
+            "fps": "8",
+        },
+    )
+
+    assert response.status_code == 200
+    engine = test_client.app.state.openai_serving_video._engine_client
+    captured = engine.captured_sampling_params_list[0]
+    assert captured.num_inference_steps == 4
+    assert captured.guidance_scale == 7.5
+    assert captured.enable_frame_interpolation is True
+    assert captured.frame_interpolation_exp == 2
+    assert captured.frame_interpolation_scale == 0.5
+    assert captured.frame_interpolation_model_path == "default-rife"
+
+
+def test_worker_fps_multiplier_is_applied_to_sync_encoding(test_client, mocker: MockerFixture):
+    engine = test_client.app.state.openai_serving_video._engine_client
+    fps_values = []
+
+    async def _generate(prompt, request_id, sampling_params_list):
+        engine.captured_prompt = prompt
+        engine.captured_sampling_params_list = sampling_params_list
+        yield MockVideoResult([object()], custom_output={"video_fps_multiplier": 2})
+
+    engine.generate = _generate
+
+    def _fake_encode(video, fps, **kwargs):
+        del video, kwargs
+        fps_values.append(fps)
+        return b"fps-multiplied"
+
+    mocker.patch(
+        "vllm_omni.entrypoints.openai.serving_video._encode_video_bytes",
+        side_effect=_fake_encode,
+    )
+
+    response = test_client.post("/v1/videos/sync", data={"prompt": "fps multiplier", "fps": "8"})
+
+    assert response.status_code == 200
+    assert response.content == b"fps-multiplied"
+    assert fps_values == [16]
+>>>>>>> 95a07f7732900974d9e608b39f36e5b2e6518442
