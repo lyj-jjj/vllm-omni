@@ -109,6 +109,7 @@ class RMSNorm(CustomOp):
         out = self.weight.to(torch.float32) * out
         return out.to(input_dtype)
 
+
 class RMSNormVAE(CustomOp):
     """Root Mean Square Layer Normalization for Channel-First or Last"""
 
