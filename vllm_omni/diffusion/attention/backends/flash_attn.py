@@ -208,41 +208,38 @@ class FlashAttentionImpl(AttentionImpl):
     ) -> torch.Tensor:
         """NPU attention implementation using mindiesd."""
 
-        # case1: dynamic fa quant
         kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None
-        if kv_cache_dtype is not None:
-            return self.forward_fa_quant_npu(query, key, value, attn_metadata)
+        if query.shape[1] != key.shape[1]:
+            # cross_attention: fa
+            out = self.forward_fa_npu(query, key, value, attn_metadata, "BSND")
+        elif kv_cache_dtype is not None:
+            # self_attention: quant_fa
+            out = self.forward_fa_quant_npu(query, key, value, attn_metadata)
+        else:
+            # self_attention: quant_fa
+            out = self.forward_fa_npu(query, key, value, attn_metadata, "BNSD")
 
-        # case2: normal fa
-        return self.forward_fa_npu(query, key, value, attn_metadata)
+        return out
 
     def forward_fa_quant_npu(
-        self,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        attn_metadata: AttentionMetadata = None,
+            self,
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            attn_metadata: AttentionMetadata = None,
     ) -> torch.Tensor:
-        kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None
-        from vllm_omni.quantization.kv_quant_npu import fp8_rotate_quant_fa, is_quantized_kv_cache
+        kv_cache_dtype = attn_metadata.kv_cache_dtype
+        from vllm_omni.quantization.kv_quant_npu import fp8_rotate_quant_fa
 
-        if is_quantized_kv_cache(kv_cache_dtype):
-            # Models pass (B, S, H, D); NPU fused op expects (B, N, S, D).
-            out = fp8_rotate_quant_fa(
-                query.transpose(1, 2),
-                key.transpose(1, 2),
-                value.transpose(1, 2),
-                layout="BNSD",
-                softmax_scale=self.softmax_scale,
-            )
-            return out.transpose(1, 2)
-        logger.warning(
-            "Attention backend does not support kv_cache_dtype='%s'. "
-            "KV quantization will be disabled.",
-            kv_cache_dtype,
+        # Models pass (B, S, H, D); NPU fused op expects (B, N, S, D).
+        out = fp8_rotate_quant_fa(
+            query.transpose(1, 2),
+            key.transpose(1, 2),
+            value.transpose(1, 2),
+            layout="BNSD",
+            softmax_scale=self.softmax_scale,
         )
-        return self.forward_fa_npu(query, key, value, attn_metadata)
-
+        return out.transpose(1, 2)
 
     def forward_fa_npu(
             self,
@@ -250,6 +247,7 @@ class FlashAttentionImpl(AttentionImpl):
             key: torch.Tensor,
             value: torch.Tensor,
             attn_metadata: AttentionMetadata = None,
+            layout: str = "BNSD",
     ) -> torch.Tensor:
         try:
             from mindiesd import attention_forward
@@ -268,7 +266,7 @@ class FlashAttentionImpl(AttentionImpl):
             attn_mask=attention_mask,
             opt_mode="manual",
             op_type="fused_attn_score",
-            layout="BNSD",
+            layout=layout,
         )
         return output
 
