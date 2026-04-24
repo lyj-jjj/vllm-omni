@@ -85,15 +85,9 @@ def fp8_rotate_quant_fa(
     q_f = torch.matmul(query, rot)
     k_f = torch.matmul(key, rot)
 
-    q, q_scale = fa_block_quant_preprocess(
-        q_f, block_size=128, dst_type=torch_npu.float8_e4m3fn, layout=layout
-    )
-    k, k_scale = fa_block_quant_preprocess(
-        k_f, block_size=256, dst_type=torch_npu.float8_e4m3fn, layout=layout
-    )
-    v, v_scale = fa_block_quant_preprocess(
-        value, block_size=256, dst_type=torch_npu.float8_e4m3fn, layout=layout
-    )
+    q, q_scale = fa_block_quant_preprocess(q_f, block_size=128, dst_type=torch_npu.float8_e4m3fn, layout=layout)
+    k, k_scale = fa_block_quant_preprocess(k_f, block_size=256, dst_type=torch_npu.float8_e4m3fn, layout=layout)
+    v, v_scale = fa_block_quant_preprocess(value, block_size=256, dst_type=torch_npu.float8_e4m3fn, layout=layout)
 
     scale = softmax_scale if softmax_scale is not None else 1.0 / math.sqrt(d)
 

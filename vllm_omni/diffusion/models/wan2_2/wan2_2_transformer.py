@@ -426,7 +426,6 @@ class WanSelfAttention(nn.Module):
             query = apply_rotary_emb_wan(query, freqs_cos, freqs_sin)
             key = apply_rotary_emb_wan(key, freqs_cos, freqs_sin)
 
-
         # Compute attention using unified attention layer
         hidden_states = self.attn(query, key, value, attn_metadata)
         hidden_states = hidden_states.flatten(2, 3)

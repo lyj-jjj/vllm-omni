@@ -173,8 +173,7 @@ class Attention(nn.Module):
         if dtype:
             if not self.attn_backend.supports_kv_cache_dtype(dtype):
                 logger.warning(
-                    "Attention backend %s does not support kv_cache_dtype='%s'. "
-                    "KV quantization will be disabled.",
+                    "Attention backend %s does not support kv_cache_dtype='%s'. KV quantization will be disabled.",
                     self.attn_backend.get_name(),
                     dtype,
                 )

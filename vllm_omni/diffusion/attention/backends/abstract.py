@@ -113,7 +113,6 @@ T = TypeVar("T", bound=AttentionMetadata)
 
 
 class AttentionImpl(ABC, Generic[T]):
-
     # Per-platform kv_cache_dtype support. Maps OmniPlatformEnum value
     # (e.g. "cuda", "npu") to the set of quantized dtypes that platform
     # handles. The base forward() checks this before dispatching and
@@ -164,8 +163,7 @@ class AttentionImpl(ABC, Generic[T]):
         supported = self._supported_kv_cache_dtypes.get(platform_key, set())
         if kv_cache_dtype not in supported:
             logger.warning_once(
-                "kv_cache_dtype='%s' requested but %s on %s does not support "
-                "it. Running in native dtype.",
+                "kv_cache_dtype='%s' requested but %s on %s does not support it. Running in native dtype.",
                 kv_cache_dtype,
                 type(self).__name__,
                 platform_key,
