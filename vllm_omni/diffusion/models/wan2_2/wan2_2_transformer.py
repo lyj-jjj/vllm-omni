@@ -402,7 +402,7 @@ class WanSelfAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor] | None = None,
-        attn_mask: torch.Tensor | None = None,
+        attn_metadata: AttentionMetadata | None = None,
     ) -> torch.Tensor:
         # Fused QKV projection
         qkv, _ = self.to_qkv(hidden_states)
@@ -426,10 +426,6 @@ class WanSelfAttention(nn.Module):
             query = apply_rotary_emb_wan(query, freqs_cos, freqs_sin)
             key = apply_rotary_emb_wan(key, freqs_cos, freqs_sin)
 
-        # Create attention metadata if mask is provided
-        attn_metadata = None
-        if attn_mask is not None:
-            attn_metadata = AttentionMetadata(attn_mask=attn_mask)
 
         # Compute attention using unified attention layer
         hidden_states = self.attn(query, key, value, attn_metadata)
@@ -547,6 +543,7 @@ class WanCrossAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
+        attn_metadata: AttentionMetadata | None = None,
     ) -> torch.Tensor:
         # Handle I2V case where encoder_hidden_states contains both image and text
         encoder_hidden_states_img = None
@@ -580,12 +577,12 @@ class WanCrossAttention(nn.Module):
             key_img = key_img.unflatten(2, (self.num_heads, self.head_dim))
             value_img = value_img.unflatten(2, (self.num_heads, self.head_dim))
 
-            hidden_states_img = self.attn(query, key_img, value_img)
+            hidden_states_img = self.attn(query, key_img, value_img, attn_metadata)
             hidden_states_img = hidden_states_img.flatten(2, 3)
             hidden_states_img = hidden_states_img.type_as(query)
 
         # Main cross-attention using unified attention layer
-        hidden_states = self.attn(query, key, value)
+        hidden_states = self.attn(query, key, value, attn_metadata)
         hidden_states = hidden_states.flatten(2, 3)
         hidden_states = hidden_states.type_as(query)
 
@@ -652,6 +649,8 @@ class WanTransformerBlock(nn.Module):
         temb: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor],
         hidden_states_mask: torch.Tensor | None = None,
+        layer_idx: int | None = None,
+        base_attn_metadata: AttentionMetadata | None = None,
     ) -> torch.Tensor:
         if temb.ndim == 4:
             # temb: batch_size, seq_len, 6, inner_dim (wan2.2 ti2v)
@@ -672,12 +671,24 @@ class WanTransformerBlock(nn.Module):
 
         # 1. Self-attention
         norm_hidden_states = (self.norm1(hidden_states.float()) * (1 + scale_msa) + shift_msa).type_as(hidden_states)
-        attn_output = self.attn1(norm_hidden_states, rotary_emb, hidden_states_mask)
+        self_attn_metadata = AttentionMetadata.from_base_with_updates(
+            base_attn_metadata,
+            layer_idx=layer_idx,
+            attn_kind="self-attn",
+            attn_mask=hidden_states_mask,
+        )
+        attn_output = self.attn1(norm_hidden_states, rotary_emb, self_attn_metadata)
         hidden_states = (hidden_states.float() + attn_output * gate_msa).type_as(hidden_states)
 
         # 2. Cross-attention
         norm_hidden_states = self.norm2(hidden_states.float()).type_as(hidden_states)
-        attn_output = self.attn2(norm_hidden_states, encoder_hidden_states)
+        cross_attn_metadata = AttentionMetadata.from_base_with_updates(
+            base_attn_metadata,
+            layer_idx=layer_idx,
+            attn_kind="cross-attn",
+            attn_mask=None,
+        )
+        attn_output = self.attn2(norm_hidden_states, encoder_hidden_states, cross_attn_metadata)
         hidden_states = hidden_states + attn_output
 
         # 3. Feed-forward
@@ -931,8 +942,24 @@ class WanTransformer3DModel(nn.Module):
             hidden_states_mask = None
 
         # Transformer blocks
-        for block in self.blocks:
-            hidden_states = block(hidden_states, encoder_hidden_states, timestep_proj, rotary_emb, hidden_states_mask)
+        base_attn_metadata = None
+        if attention_kwargs is not None:
+            candidate_metadata = attention_kwargs.get("attn_metadata")
+            if isinstance(candidate_metadata, AttentionMetadata):
+                base_attn_metadata = candidate_metadata
+            elif isinstance(candidate_metadata, dict):
+                base_attn_metadata = AttentionMetadata(**candidate_metadata)
+
+        for layer_idx, block in enumerate(self.blocks):
+            hidden_states = block(
+                hidden_states,
+                encoder_hidden_states,
+                timestep_proj,
+                rotary_emb,
+                hidden_states_mask,
+                layer_idx=layer_idx,
+                base_attn_metadata=base_attn_metadata,
+            )
 
         # Output norm, projection & unpatchify
         shift, scale = self.output_scale_shift_prepare(temb)

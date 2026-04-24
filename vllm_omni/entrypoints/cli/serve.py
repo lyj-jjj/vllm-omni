@@ -358,6 +358,24 @@ class OmniServeCommand(CLISubcommand):
             help="Scheduler flow_shift for video models (e.g., 5.0 for 720p, 12.0 for 480p).",
         )
         omni_config_group.add_argument(
+            "--kv-cache-dtype",
+            type=str,
+            default=None,
+            help="Config-level KV cache dtype (e.g. float8_e4m3fn).",
+        )
+        omni_config_group.add_argument(
+            "--kv-cache-skip-steps",
+            type=str,
+            default=None,
+            help="Config-level KV-cache quantization skip-step selector, e.g. '0-9,20,25-30'.",
+        )
+        omni_config_group.add_argument(
+            "--kv-cache-skip-layers",
+            type=str,
+            default=None,
+            help="Config-level KV-cache quantization skip-layer selector, e.g. '0,1,4-8'.",
+        )
+        omni_config_group.add_argument(
             "--cfg-parallel-size",
             type=int,
             default=1,
