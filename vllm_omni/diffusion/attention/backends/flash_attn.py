@@ -48,9 +48,7 @@ class FlashAttentionImpl(AttentionImpl):
     # To enable FP8 on a new platform, add its OmniPlatformEnum value here
     # and handle kv_cache_dtype in the corresponding forward_{platform}().
     _supported_kv_cache_dtypes = {
-        # "cuda": {"fp8", "fp8_e4m3"},
-        # "rocm": {"fp8", "fp8_e4m3"},
-        "npu": {"fp8", "fp8_e4m3fn"},
+        "npu": {"fp8"},
     }
 
     def __init__(
@@ -208,15 +206,15 @@ class FlashAttentionImpl(AttentionImpl):
     ) -> torch.Tensor:
         """NPU attention implementation using mindiesd."""
 
-        # case1: cross-attention,normal fa dynamic fa quant
+        # case1: cross-attention, normal fa
         if attn_metadata.attn_kind == "cross-attention":
-            return self.forward_fa_npu(query, key, value, attn_metadata)
+            return self.forward_fa_npu(query, key, value, attn_metadata, "BSND")
         # case2: dynamic fa quant
         kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None
         if kv_cache_dtype is not None:
             return self.forward_fa_quant_npu(query, key, value, attn_metadata)
         # other: normal fa
-        return self.forward_fa_npu(query, key, value, attn_metadata)
+        return self.forward_fa_npu(query, key, value, attn_metadata, "BNSD")
 
     def forward_fa_quant_npu(
         self,
@@ -243,6 +241,7 @@ class FlashAttentionImpl(AttentionImpl):
         key: torch.Tensor,
         value: torch.Tensor,
         attn_metadata: AttentionMetadata = None,
+        layout: str = "BNSD",
     ) -> torch.Tensor:
         try:
             from mindiesd import attention_forward
@@ -261,6 +260,6 @@ class FlashAttentionImpl(AttentionImpl):
             attn_mask=attention_mask,
             opt_mode="manual",
             op_type="fused_attn_score",
-            layout="BNSD",
+            layout=layout,
         )
         return output
