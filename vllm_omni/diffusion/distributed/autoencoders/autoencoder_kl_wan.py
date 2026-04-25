@@ -58,8 +58,9 @@ class OmniAutoencoderKLWan(AutoencoderKLWan):
         a_region = a[..., -blend_extent:, :]
         b_region = b[..., :blend_extent, :]
 
-        b[..., :blend_extent, :] = a_region * weight_a[None, None, None, :, None] + b_region * weight_b[
-            None, None, None, :, None]
+        b[..., :blend_extent, :] = (
+            a_region * weight_a[None, None, None, :, None] + b_region * weight_b[None, None, None, :, None]
+        )
         return b
 
     def blend_h(self, a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
@@ -74,8 +75,9 @@ class OmniAutoencoderKLWan(AutoencoderKLWan):
         a_region = a[..., -blend_extent:]
         b_region = b[..., :blend_extent]
 
-        b[..., :blend_extent] = a_region * weight_a[None, None, None, None, :] + b_region * weight_b[
-            None, None, None, None, :]
+        b[..., :blend_extent] = (
+            a_region * weight_a[None, None, None, None, :] + b_region * weight_b[None, None, None, None, :]
+        )
         return b
 
 
