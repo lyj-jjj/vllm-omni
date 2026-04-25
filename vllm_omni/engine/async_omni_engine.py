@@ -1464,6 +1464,10 @@ class AsyncOmniEngine:
                         or cfg.engine_args.quantization_config is None
                     ):
                         cfg.engine_args.quantization_config = quantization_config
+                quantization = kwargs.get("quantization")
+                if quantization is not None:
+                    if not hasattr(cfg.engine_args, "quantization") or cfg.engine_args.quantization is None:
+                        cfg.engine_args.quantization = quantization
                 kv_cache_dtype = kwargs.get("kv_cache_dtype")
                 if kv_cache_dtype is not None:
                     if not hasattr(cfg.engine_args, "kv_cache_dtype") or cfg.engine_args.kv_cache_dtype is None:
