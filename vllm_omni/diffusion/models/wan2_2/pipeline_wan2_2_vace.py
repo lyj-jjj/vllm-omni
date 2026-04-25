@@ -189,8 +189,10 @@ class Wan22VACEPipeline(Wan22Pipeline, SupportImageInput):
         vace_context_scale: float,
     ) -> torch.Tensor:
         with self.progress_bar(total=len(timesteps)) as pbar:
-            for t in timesteps:
+            for step_idx, t in enumerate(timesteps):
                 self._current_timestep = t
+                attention_kwargs["step_idx"] = step_idx
+
                 latent_model_input = latents.to(dtype)
                 timestep = t.expand(latents.shape[0])
 
