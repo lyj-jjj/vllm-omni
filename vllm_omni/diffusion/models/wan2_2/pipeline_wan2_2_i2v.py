@@ -287,10 +287,7 @@ class Wan22I2VPipeline(
                     current_model = self.transformer_2
                     current_guidance_scale = guidance_high
 
-                step_attention_kwargs = dict(attention_kwargs)
-                step_attention_kwargs["attn_metadata"] = AttentionMetadata(
-                    denoise_step_idx=step_idx,
-                )
+                attention_kwargs["step_idx"] = step_idx
 
                 # Prepare latent input
                 if self.expand_timesteps:
@@ -313,7 +310,7 @@ class Wan22I2VPipeline(
                     "timestep": timestep,
                     "encoder_hidden_states": prompt_embeds,
                     "encoder_hidden_states_image": image_embeds,
-                    "attention_kwargs": step_attention_kwargs,
+                    "attention_kwargs": attention_kwargs,
                     "return_dict": False,
                     "current_model": current_model,
                 }
@@ -323,7 +320,7 @@ class Wan22I2VPipeline(
                         "timestep": timestep,
                         "encoder_hidden_states": negative_prompt_embeds,
                         "encoder_hidden_states_image": image_embeds,
-                        "attention_kwargs": step_attention_kwargs,
+                        "attention_kwargs": attention_kwargs,
                         "return_dict": False,
                         "current_model": current_model,
                     }

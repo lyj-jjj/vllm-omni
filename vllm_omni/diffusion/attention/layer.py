@@ -203,16 +203,14 @@ class Attention(nn.Module):
     def _should_apply_kv_cache_quant(self, attn_metadata: AttentionMetadata | None) -> bool:
         skip_steps = self._kv_cache_skip_steps
         skip_layers = self._kv_cache_skip_layers
-        # The priority of skip_layers is higher than skip_steps
-        if skip_layers is not None:
-            layer_idx = attn_metadata.layer_idx if attn_metadata is not None else None
-            if layer_idx is not None and layer_idx in skip_layers:
-                return False
         if skip_steps is not None:
             step_idx = attn_metadata.denoise_step_idx if attn_metadata is not None else None
             if step_idx is not None and step_idx in skip_steps:
                 return False
-
+        if skip_layers is not None:
+            layer_idx = attn_metadata.layer_idx if attn_metadata is not None else None
+            if layer_idx is not None and layer_idx in skip_layers:
+                return False
         return True
 
     def forward(

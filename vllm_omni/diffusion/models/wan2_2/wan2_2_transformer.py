@@ -633,8 +633,8 @@ class WanTransformerBlock(nn.Module):
         temb: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor],
         hidden_states_mask: torch.Tensor | None = None,
+        denoise_step_idx: int | None = None,
         layer_idx: int | None = None,
-        base_attn_metadata: AttentionMetadata | None = None,
     ) -> torch.Tensor:
         if temb.ndim == 4:
             # temb: batch_size, seq_len, 6, inner_dim (wan2.2 ti2v)
@@ -655,8 +655,8 @@ class WanTransformerBlock(nn.Module):
 
         # 1. Self-attention
         norm_hidden_states = self.norm1(hidden_states, scale_msa, shift_msa).type_as(hidden_states)
-        self_attn_metadata = AttentionMetadata.from_base_with_updates(
-            base_attn_metadata,
+        self_attn_metadata = AttentionMetadata(
+            denoise_step_idx=denoise_step_idx,
             layer_idx=layer_idx,
             attn_kind="self-attn",
             attn_mask=hidden_states_mask,
@@ -666,8 +666,8 @@ class WanTransformerBlock(nn.Module):
 
         # 2. Cross-attention
         norm_hidden_states = self.norm2(hidden_states).type_as(hidden_states)
-        cross_attn_metadata = AttentionMetadata.from_base_with_updates(
-            base_attn_metadata,
+        cross_attn_metadata = AttentionMetadata(
+            denoise_step_idx=denoise_step_idx,
             layer_idx=layer_idx,
             attn_kind="cross-attn",
             attn_mask=None,
@@ -935,13 +935,10 @@ class WanTransformer3DModel(nn.Module):
             hidden_states_mask = None
 
         # Transformer blocks
-        base_attn_metadata = None
-        if attention_kwargs is not None:
-            candidate_metadata = attention_kwargs.get("attn_metadata")
-            if isinstance(candidate_metadata, AttentionMetadata):
-                base_attn_metadata = candidate_metadata
-            elif isinstance(candidate_metadata, dict):
-                base_attn_metadata = AttentionMetadata(**candidate_metadata)
+        if attention_kwargs is not None and attention_kwargs["step_idx"] is not None:
+            denoise_step_idx = attention_kwargs["step_idx"]
+        else:
+            denoise_step_idx = None
 
         for layer_idx, block in enumerate(self.blocks):
             hidden_states = block(
@@ -950,8 +947,8 @@ class WanTransformer3DModel(nn.Module):
                 timestep_proj,
                 rotary_emb,
                 hidden_states_mask,
-                layer_idx=layer_idx,
-                base_attn_metadata=base_attn_metadata,
+                denoise_step_idx,
+                layer_idx,
             )
 
         # Output norm, projection & unpatchify

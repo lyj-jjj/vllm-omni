@@ -207,7 +207,7 @@ class FlashAttentionImpl(AttentionImpl):
         """NPU attention implementation using mindiesd."""
 
         # case1: cross-attention, normal fa
-        if attn_metadata.attn_kind == "cross-attention":
+        if attn_metadata.attn_kind == "cross-attn":
             return self.forward_fa_npu(query, key, value, attn_metadata, "BSND")
         # case2: dynamic fa quant
         kv_cache_dtype = attn_metadata.kv_cache_dtype if attn_metadata else None

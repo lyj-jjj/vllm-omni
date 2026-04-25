@@ -86,28 +86,6 @@ class AttentionMetadata:
     layer_idx: int | None = None
     attn_kind: str | None = None  # "self-attention" | "cross-attention"
 
-    @classmethod
-    def from_base_with_updates(
-        cls,
-        base: "AttentionMetadata | None",
-        *,
-        layer_idx: int | None = None,
-        attn_kind: str | None = None,
-        attn_mask: torch.Tensor | None = None,
-    ) -> "AttentionMetadata | None":
-        """Build metadata for one attention call without mutating ``base``."""
-
-        if base is None and layer_idx is None and attn_kind is None and attn_mask is None:
-            return None
-        metadata = cls()
-        if layer_idx is not None:
-            metadata.layer_idx = layer_idx
-        if attn_kind is not None:
-            metadata.attn_kind = attn_kind
-        if attn_mask is not None:
-            metadata.attn_mask = attn_mask
-        return metadata
-
 
 T = TypeVar("T", bound=AttentionMetadata)
 
