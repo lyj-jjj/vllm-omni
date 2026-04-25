@@ -12,9 +12,9 @@
 
 vLLM-Omni supports various advanced features for diffusion models:
 
-- Acceleration: **cache methods**, **parallelism methods**
+- Acceleration: **cache methods**, **parallelism methods**, **startup optimizations**
 - Memory optimization: **cpu offloading**, **quantization**
-- Extensions: **LoRA inference**
+- Extensions: **LoRA inference**, **frame interpolation**
 - Execution modes: **step execution**
 
 ## Supported Features
@@ -44,6 +44,12 @@ Parallelism methods distribute computation across GPUs without quality loss (mat
 | **[HSDP](diffusion/parallelism/hsdp.md)** | Weight sharding via FSDP2, redistributed on-demand at runtime | Very large models (14B+) on limited VRAM, combinable with SP |
 | **[Expert Parallelism](diffusion/parallelism/expert_parallel.md)** | Shards MoE expert MLP blocks across devices | MoE diffusion models (e.g., HunyuanImage3.0) |
 
+#### Startup Optimization
+
+| Method | Description | Best For |
+|--------|-------------|----------|
+| **[Multi-Thread Weight Loading](#multi-thread-weight-loading)** | Loads safetensors shards in parallel using a thread pool | All diffusion models; reduces startup from minutes to seconds |
+
 **Note:** Some acceleration methods can be combined together for optimized performance. See [Feature Compatibility Table](#feature-compatibility) and [Feature Compatibility Tutorial](feature_compatibility.md) for detailed configuration examples.
 
 ### Memory Optimization
@@ -63,6 +69,7 @@ Extension methods add specialized capabilities to diffusion models beyond standa
 | Method | Description | Best For |
 |--------|-------------|----------|
 | **[LoRA Inference](diffusion/lora.md)** | Enables inference with Low-Rank Adaptation (LoRA) adapters weights | Reinforcement learning extensions |
+| **[Frame Interpolation](diffusion/frame_interpolation.md)** | Inserts intermediate video frames after generation for smoother motion | Video generation pipelines that need higher temporal smoothness |
 
 
 ### Execution Modes
@@ -102,17 +109,18 @@ The following tables show which models support each feature:
 |-------|:----------:|:-----------:|:---------------------:|:--------------:|:-----------------:|:------:|:------------------------:|:--------------------:|:--------------:|:----------------:|
 | **Bagel** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **FLUX.1-dev** | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **FLUX.1-schnell** | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | **FLUX.2-klein** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | **FLUX.1-Kontext-dev** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **FLUX.2-dev** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **FLUX.2-dev** | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **GLM-Image** | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **HunyuanImage3** | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ |
-| **LongCat-Image** | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| **LongCat-Image-Edit** | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **LongCat-Image** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| **LongCat-Image-Edit** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | **MagiHuman** | ❌ | ❌ | ❌ | ❓ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | **MammothModa2(T2I)** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Nextstep_1(T2I)** | ❓ | ❓ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
-| **OmniGen2** | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **OmniGen2** | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Ovis-Image** | ❌ | ✅ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | **Qwen-Image** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (decode) | ✅ | ✅ |
 | **Qwen-Image-2512** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (decode) | ✅ | ✅ |
@@ -132,16 +140,22 @@ The following tables show which models support each feature:
 |-------|:----------:|:-----------:|:---------------------:|:--------------:|:-----------------:|:------:|:------------------------:|:--------------------:|:--------------:|:----------------:|
 | **Wan2.2** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (encode/decode) | ❌ | ❌ |
 | **Wan2.1-VACE** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (decode) | ❌ | ❌ |
-| **LTX-2** | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **LTX-2** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **LTX-2.3** | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Helios** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **HunyuanVideo-1.5 T2V I2V** | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ (decode) | ✅ | ❌ |
-| **DreamID-Omni** | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **DreamID-Omni** | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+
+**Frame Interpolation Support**
+
+- **Supported**: Wan2.2 text-to-video, image-to-video, and TI2V pipelines
+- **Not supported**: Wan2.1-VACE, LTX-2, LTX-2.3, Helios, HunyuanVideo-1.5, DreamID-Omni
 
 ### AudioGen
 
 | Model | ⚡TeaCache | ⚡Cache-DiT | 🔀SP (Ulysses & Ring) | 🔀CFG-Parallel | 🔀Tensor-Parallel | 🔀HSDP | 💾CPU Offload (Layerwise) | 💾VAE-Patch-Parallel | 💾Quantization | 🔄Step Execution |
 |-------|:----------:|:-----------:|:---------------------:|:--------------:|:-----------------:|:------:|:------------------------:|:--------------------:|:--------------:|:----------------:|
-| **Stable-Audio-Open** | ❌ | ❌ | ❓ | ❓ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+| **Stable-Audio-Open** | ✅ | ❌ | ❓ | ❓ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ |
 
 
 ## Feature Compatibility
@@ -179,6 +193,59 @@ The following tables show which models support each feature:
     6. Step Execution is not compatible with cache backends (TeaCache, Cache-DiT) or LoRA.
 
 
+## Multi-Thread Weight Loading
+
+Large diffusion models can take several minutes to load weights at startup (e.g., ~3 min for Qwen-Image, ~5 min for Wan2.2 I2V 14B). Multi-thread weight loading speeds up this process by loading safetensors shards in parallel using a thread pool instead of sequentially.
+
+This optimization is **enabled by default** with 4 threads. No configuration is needed for the default behavior.
+
+### Configuration
+
+| Parameter | CLI Flag | Default | Description |
+|-----------|----------|---------|-------------|
+| `enable_multithread_weight_load` | `--disable-multithread-weight-load` | `True` (enabled) | Pass the flag to disable multi-thread loading |
+| `num_weight_load_threads` | `--num-weight-load-threads` | `4` | Number of threads for parallel weight loading |
+
+!!! tip
+    The default of 4 threads balances speed and disk I/O contention. On fast NVMe storage you may benefit from more threads (e.g., 8). On HDD or network storage, the default of 4 avoids saturating I/O bandwidth.
+
+### Online Serving
+
+```bash
+# Default (multi-thread enabled, 4 threads)
+vllm serve Qwen/Qwen-Image --omni --port 8091
+
+# Custom thread count
+vllm serve Wan-AI/Wan2.2-I2V-A14B-Diffusers --omni --num-weight-load-threads 8
+
+# Disable multi-thread loading
+vllm serve Qwen/Qwen-Image --omni --disable-multithread-weight-load
+```
+
+### Offline Inference
+
+```python
+from vllm_omni import Omni
+
+# Default (multi-thread enabled, 4 threads)
+omni = Omni(model="Qwen/Qwen-Image")
+
+# Custom thread count
+omni = Omni(
+    model="Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+    num_weight_load_threads=8,
+)
+```
+
+### Benchmarks
+
+Measured on NVIDIA H800:
+
+| Model | Before | After | Speedup |
+|-------|--------|-------|---------|
+| **Qwen/Qwen-Image** (53.7 GiB) | 168s | 27s | **6.2x** |
+| **Wan-AI/Wan2.2-I2V-A14B-Diffusers** (64.5 GiB) | 283s | 56s | **5.1x** |
+
 ## Learn More
 
 **Cache Acceleration:**
@@ -199,10 +266,15 @@ The following tables show which models support each feature:
 **Extensions:**
 
 - **[LoRA Inference Guide](diffusion/lora.md)** - Low-Rank Adaptation for style customization and fine-tuning
+- **[Frame Interpolation Guide](diffusion/frame_interpolation.md)** - Worker-side post-generation video frame interpolation for smoother motion
 
 **Execution Modes:**
 
 - **[Step Execution Guide](diffusion/step_execution.md)** - Per-step denoise execution with mid-request abort support
+
+**Startup Optimization:**
+
+- **[Multi-Thread Weight Loading](#multi-thread-weight-loading)** - Speed up model startup by loading safetensors shards in parallel
 
 **Advanced Topics:**
 
