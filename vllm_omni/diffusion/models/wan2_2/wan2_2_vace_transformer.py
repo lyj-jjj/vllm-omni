@@ -46,6 +46,8 @@ class VaceWanTransformerBlock(WanTransformerBlock):
         temb: torch.Tensor,
         rotary_emb: tuple[torch.Tensor, torch.Tensor],
         hidden_states_mask: torch.Tensor | None = None,
+        denoise_step_idx: int | None = None,
+        layer_idx: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.proj_in is not None:
             control_hidden_states = self.proj_in(control_hidden_states)
@@ -57,6 +59,8 @@ class VaceWanTransformerBlock(WanTransformerBlock):
             temb,
             rotary_emb,
             hidden_states_mask,
+            denoise_step_idx,
+            layer_idx,
         )
 
         conditioning_states = self.proj_out(control_hidden_states)
@@ -214,13 +218,18 @@ class WanVACETransformer3DModel(WanTransformer3DModel):
             )
             hidden_states_mask[:, ctx.sp_original_seq_len :] = False
 
+        if attention_kwargs is not None and attention_kwargs["step_idx"] is not None:
+            denoise_step_idx = attention_kwargs["step_idx"]
+        else:
+            denoise_step_idx = None
+
         # VACE: embed context and run conditioning blocks
         vace_hints = None
         if vace_context is not None and self.vace_blocks is not None:
             full_seq_len = hidden_states.shape[1] * sp_size
             control_hidden_states = self.embed_vace_context(vace_context.to(hidden_states.dtype), full_seq_len, sp_size)
             vace_hints = []
-            for block in self.vace_blocks:
+            for i, block in enumerate(self.vace_blocks):
                 conditioning_states, control_hidden_states = block(
                     hidden_states,
                     encoder_hidden_states,
@@ -228,6 +237,8 @@ class WanVACETransformer3DModel(WanTransformer3DModel):
                     timestep_proj,
                     rotary_emb,
                     hidden_states_mask,
+                    denoise_step_idx,
+                    i,
                 )
                 vace_hints.append(conditioning_states)
 
@@ -237,7 +248,15 @@ class WanVACETransformer3DModel(WanTransformer3DModel):
 
         # Transformer blocks with VACE hint application
         for i, block in enumerate(self.blocks):
-            hidden_states = block(hidden_states, encoder_hidden_states, timestep_proj, rotary_emb, hidden_states_mask)
+            hidden_states = block(
+                hidden_states,
+                encoder_hidden_states,
+                timestep_proj,
+                rotary_emb,
+                hidden_states_mask,
+                denoise_step_idx,
+                i,
+            )
             if vace_hints is not None and self.vace_layers_mapping is not None and i in self.vace_layers_mapping:
                 vace_idx = self.vace_layers_mapping[i]
                 hidden_states = hidden_states + vace_hints[vace_idx] * vace_context_scale[vace_idx]
