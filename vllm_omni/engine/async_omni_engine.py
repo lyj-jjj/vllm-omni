@@ -781,7 +781,9 @@ class AsyncOmniEngine:
                             previous_runtime_env: dict[str, str | None] = {}
                             try:
                                 setup_stage_devices(configured_stage_id, metadata.runtime_cfg)
-                                previous_runtime_env = apply_stage_runtime_env(configured_stage_id, metadata.runtime_cfg)
+                                previous_runtime_env = apply_stage_runtime_env(
+                                    configured_stage_id, metadata.runtime_cfg
+                                )
                                 omni_conn_cfg, omni_from, omni_to = omni_kv_connector
                                 if omni_conn_cfg:
                                     inject_omni_kv_config(stage_cfg, omni_conn_cfg, omni_from, omni_to)
