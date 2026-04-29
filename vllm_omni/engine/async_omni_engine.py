@@ -457,15 +457,7 @@ class AsyncOmniEngine:
                                 addresses=addresses,
                                 proc=proc,
                             )
-                            logger.info("[AsyncOmniEngine] Stage %s engine launch started", metadata.stage_id)
-                            assert handshake_address is not None
-                            complete_stage_handshake(
-                                proc,
-                                handshake_address,
-                                addresses,
-                                vllm_config,
-                                stage_init_timeout,
-                            )
+                        logger.info("[AsyncOmniEngine] Stage %s engine launch started", metadata.stage_id)
                     finally:
                         restore_stage_runtime_env(previous_runtime_env)
                         if previous_visible_devices is None:
