@@ -65,6 +65,7 @@ from vllm_omni.engine.stage_init_utils import (
     StartedLlmStage,
     _inject_inferred_kv_tp_topology,
     acquire_device_locks,
+    apply_stage_runtime_env,
     build_diffusion_config,
     build_engine_args_dict,
     build_vllm_config,
@@ -78,6 +79,7 @@ from vllm_omni.engine.stage_init_utils import (
     load_omni_transfer_config_for_model,
     prepare_engine_environment,
     release_device_locks,
+    restore_stage_runtime_env,
     setup_stage_devices,
     terminate_alive_proc,
 )
@@ -385,8 +387,10 @@ class AsyncOmniEngine:
             with ExitStack() as launch_stack:
                 with llm_stage_launch_lock:
                     previous_visible_devices = os.environ.get(device_control_env)
+                    previous_runtime_env: dict[str, str | None] = {}
                     try:
                         setup_stage_devices(metadata.stage_id, metadata.runtime_cfg)
+                        previous_runtime_env = apply_stage_runtime_env(metadata.stage_id, metadata.runtime_cfg)
                         engine_args_dict = build_engine_args_dict(
                             stage_cfg,
                             self.model,
@@ -453,8 +457,17 @@ class AsyncOmniEngine:
                                 addresses=addresses,
                                 proc=proc,
                             )
-                        logger.info("[AsyncOmniEngine] Stage %s engine launch started", metadata.stage_id)
+                            logger.info("[AsyncOmniEngine] Stage %s engine launch started", metadata.stage_id)
+                            assert handshake_address is not None
+                            complete_stage_handshake(
+                                proc,
+                                handshake_address,
+                                addresses,
+                                vllm_config,
+                                stage_init_timeout,
+                            )
                     finally:
+                        restore_stage_runtime_env(previous_runtime_env)
                         if previous_visible_devices is None:
                             current_omni_platform.unset_device_control_env_var()
                         else:
@@ -773,8 +786,10 @@ class AsyncOmniEngine:
 
                         with llm_stage_launch_lock:
                             previous_visible_devices = os.environ.get(device_control_env)
+                            previous_runtime_env: dict[str, str | None] = {}
                             try:
                                 setup_stage_devices(configured_stage_id, metadata.runtime_cfg)
+                                previous_runtime_env = apply_stage_runtime_env(configured_stage_id, metadata.runtime_cfg)
                                 omni_conn_cfg, omni_from, omni_to = omni_kv_connector
                                 if omni_conn_cfg:
                                     inject_omni_kv_config(stage_cfg, omni_conn_cfg, omni_from, omni_to)
@@ -803,6 +818,7 @@ class AsyncOmniEngine:
                                     self.diffusion_batch_size,
                                 )
                             finally:
+                                restore_stage_runtime_env(previous_runtime_env)
                                 if previous_visible_devices is None:
                                     current_omni_platform.unset_device_control_env_var()
                                 else:
